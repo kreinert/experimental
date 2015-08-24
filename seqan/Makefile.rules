@@ -1,0 +1,20 @@
+CXX=g++-mp-4.9
+CC=gcc-mp-4.9 
+
+SRC=../src
+CXXFLAGS+=-I../../../../seqan/include -fopenmp
+LDFLAGS+=-fopenmp
+
+default: all
+all: stest 
+
+stest: stest.o
+	$(CXX) $(LDFLAGS) -o stest stest.o
+
+stest.o: $(SRC)/stest.cpp
+	$(CXX) $(CXXFLAGS) -c -o stest.o $(SRC)/stest.cpp
+
+clean:
+	rm -f stest.o stest
+
+.PHONY: default all clean
