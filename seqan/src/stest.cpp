@@ -6,7 +6,16 @@
 
 using namespace std;
 
+int right_function()
+{
+    
+}
 
+int test()
+{
+    // added comment
+
+}
 
 int main()
 {
