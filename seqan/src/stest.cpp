@@ -6,6 +6,10 @@
 
 using namespace std;
 
+int right_function()
+{
+    
+}
 
 int main()
 {
