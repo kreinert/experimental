@@ -1,20 +1,31 @@
-CXX=g++-mp-4.9
-CC=gcc-mp-4.9 
+CXX=c++
+CC=cc 
+#CXX=g++-mp-4.9
+3CC=gcc-mp-4.9 
 
 SRC=../src
-CXXFLAGS+=-I../../../../seqan/include -fopenmp
-LDFLAGS+=-fopenmp
+#CXXFLAGS+= -std=c++14 -I../../../../seqan/include -I/Library/gurobi605/mac64/include -fopenmp
+#CXXFLAGS+= -std=c++14 -I../../../../seqan/include -I/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/include/c++/v1
+CXXFLAGS+= -std=c++14 -I../../../../seqan/include 
+
+#LDFLAGS+=
 
 default: all
-all: stest 
+all: stut
+
+%.o: $(SRC)/%.cpp
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+viraldesign: determineLowestVirulence.o
+	$(CXX) $(LDFLAGS) -o vd determineLowestVirulence.o /Library/gurobi605/mac64/lib/libgurobi_c++.a
 
 stest: stest.o
-	$(CXX) $(LDFLAGS) -o stest stest.o
+	$(CXX) $(LDFLAGS) -o $@ $<
 
-stest.o: $(SRC)/stest.cpp
-	$(CXX) $(CXXFLAGS) -c -o stest.o $(SRC)/stest.cpp
+stut: tutorial.o
+	$(CXX) $(LDFLAGS) -o $@ $<
 
 clean:
-	rm -f stest.o stest
+	rm -f stest.o stest stut tutorial.o
 
 .PHONY: default all clean

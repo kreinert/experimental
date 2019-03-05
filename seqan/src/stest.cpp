@@ -4,6 +4,9 @@
 #include <iostream>
 #include <omp.h>
 
+
+
+
 using namespace std;
 
 int right_function()
@@ -13,7 +16,7 @@ int right_function()
 
 int test()
 {
-    // added comment
+   
 
 }
 
