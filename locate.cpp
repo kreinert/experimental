@@ -2,14 +2,17 @@
  * locate.cpp  –  K-mer Read Locator
  *
  * Reads a reference genome FASTA and a reads FASTA (produced by simulate.cpp).
- * For each read it calls locate(read) which returns every genome position at
- * which any k-mer of the read occurs.  Each hit is then classified:
+ * For each read it calls index->locate(read) which returns every genome position
+ * at which any k-mer of the read occurs.  Each hit is then classified:
  *
  *   in_interval  – hit position falls within [orig_pos, orig_pos + len - 1]
- *                  (the interval the read was originally sampled from)
  *   out_interval – hit position is outside that window
  *
- * Build:  g++ -std=c++17 -O2 -o locate locate.cpp
+ * To swap the index implementation, change the one line in main() that
+ * constructs the index (marked "SWAP INDEX HERE") to any other class that
+ * derives from KmerIndexBase.
+ *
+ * Build:  clang++ -std=c++17 -O2 -o locate locate.cpp
  *
  * Usage:  ./locate -r reads.fasta -g genome.fasta -k 15
  *         ./locate -r reads.fasta -g genome.fasta -k 15 --verbose
@@ -19,20 +22,91 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <memory>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
+// ===========================================================================
+// K-mer index interface
+//
+// To add a new index implementation:
+//   1. Derive a class from KmerIndexBase.
+//   2. Implement build() and locate().
+//   3. In main(), replace the "SWAP INDEX HERE" line with your class.
+// ===========================================================================
+
+class KmerIndexBase {
+public:
+    virtual ~KmerIndexBase() = default;
+
+    /** Index the given genome for k-mers of length k. */
+    virtual void build(const std::string& genome, int k) = 0;
+
+    /**
+     * Return the sorted, deduplicated list of genome positions at which any
+     * k-mer of `query` occurs.
+     */
+    virtual std::vector<int> locate(const std::string& query) const = 0;
+
+    /** Human-readable name shown in the summary header. */
+    virtual std::string name() const = 0;
+};
+
 // ---------------------------------------------------------------------------
+// Default implementation: hash map  (string k-mer → list of positions)
+// ---------------------------------------------------------------------------
+
+class HashKmerIndex : public KmerIndexBase {
+public:
+    void build(const std::string& genome, int k) override {
+        k_ = k;
+        map_.clear();
+        map_.reserve(genome.size());
+        for (int i = 0; i <= static_cast<int>(genome.size()) - k; ++i)
+            map_[genome.substr(i, k)].push_back(i);
+    }
+
+    std::vector<int> locate(const std::string& query) const override {
+        std::vector<int> hits;
+        for (int i = 0; i <= static_cast<int>(query.size()) - k_; ++i) {
+            auto it = map_.find(query.substr(i, k_));
+            if (it != map_.end())
+                hits.insert(hits.end(), it->second.begin(), it->second.end());
+        }
+        std::sort(hits.begin(), hits.end());
+        hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
+        return hits;
+    }
+
+    std::string name() const override { return "HashKmerIndex (unordered_map)"; }
+
+private:
+    int k_ = 0;
+    std::unordered_map<std::string, std::vector<int>> map_;
+};
+
+// ---------------------------------------------------------------------------
+// (Example stub) SortedKmerIndex – replace body with a real implementation
+// ---------------------------------------------------------------------------
+//
+// class SortedKmerIndex : public KmerIndexBase {
+// public:
+//     void build(const std::string& genome, int k) override { /* ... */ }
+//     std::vector<int> locate(const std::string& query) const override { /* ... */ }
+//     std::string name() const override { return "SortedKmerIndex"; }
+// };
+
+// ===========================================================================
 // Argument parsing
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 struct Args {
     std::string reads;
     std::string genome;
-    int k        = -1;
+    int  k       = -1;
     bool verbose = false;
 };
 
@@ -68,12 +142,12 @@ static Args parse_args(int argc, char* argv[]) {
     return a;
 }
 
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // FASTA parsing
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 struct FastaRecord {
-    std::string header;   // without leading '>'
+    std::string header;    // without leading '>'
     std::string sequence;
 };
 
@@ -101,10 +175,6 @@ static std::vector<FastaRecord> parse_fasta(const std::string& path) {
     return records;
 }
 
-// ---------------------------------------------------------------------------
-// Header metadata parsing
-// ---------------------------------------------------------------------------
-
 static bool parse_int_tag(const std::string& header,
                            const std::string& tag, int& out) {
     auto pos = header.find(tag);
@@ -117,48 +187,9 @@ static bool parse_int_tag(const std::string& header,
     } catch (...) { return false; }
 }
 
-// ---------------------------------------------------------------------------
-// K-mer index
-// ---------------------------------------------------------------------------
-
-using KmerIndex = std::unordered_map<std::string, std::vector<int>>;
-
-static KmerIndex build_kmer_index(const std::string& genome, int k) {
-    KmerIndex idx;
-    int n = static_cast<int>(genome.size());
-    idx.reserve(n);
-    for (int i = 0; i <= n - k; ++i)
-        idx[genome.substr(i, k)].push_back(i);
-    return idx;
-}
-
-// ---------------------------------------------------------------------------
-// locate
-// ---------------------------------------------------------------------------
-
-/**
- * Returns the sorted, deduplicated list of genome positions at which any
- * k-mer of `read` occurs according to `kmer_index`.
- */
-static std::vector<int> locate(const std::string& read,
-                                int k,
-                                const KmerIndex& kmer_index) {
-    std::vector<int> hits;
-    int n = static_cast<int>(read.size());
-    for (int i = 0; i <= n - k; ++i) {
-        auto it = kmer_index.find(read.substr(i, k));
-        if (it != kmer_index.end())
-            hits.insert(hits.end(), it->second.begin(), it->second.end());
-    }
-    // Deduplicate
-    std::sort(hits.begin(), hits.end());
-    hits.erase(std::unique(hits.begin(), hits.end()), hits.end());
-    return hits;
-}
-
-// ---------------------------------------------------------------------------
+// ===========================================================================
 // Main
-// ---------------------------------------------------------------------------
+// ===========================================================================
 
 int main(int argc, char* argv[]) {
     Args a = parse_args(argc, argv);
@@ -173,33 +204,37 @@ int main(int argc, char* argv[]) {
     std::cout << "Genome length : " << genome.size() << "\n";
 
     if (a.k > static_cast<int>(genome.size())) {
-        std::cerr << "ERROR: k=" << a.k << " is larger than the genome ("
+        std::cerr << "ERROR: k=" << a.k << " exceeds genome length ("
                   << genome.size() << ")\n";
         return 1;
     }
 
-    // Build k-mer index
+    // -----------------------------------------------------------------------
+    // SWAP INDEX HERE – replace HashKmerIndex with any other KmerIndexBase
+    // -----------------------------------------------------------------------
+    std::unique_ptr<KmerIndexBase> index = std::make_unique<HashKmerIndex>();
+    // -----------------------------------------------------------------------
+
+    std::cout << "Index type    : " << index->name() << "\n";
     std::cout << "Building " << a.k << "-mer index …\n";
-    KmerIndex kmer_index = build_kmer_index(genome, a.k);
-    std::cout << "Distinct " << a.k << "-mers in genome: "
-              << kmer_index.size() << "\n";
+    index->build(genome, a.k);
 
     // Load reads
     auto reads = parse_fasta(a.reads);
     std::cout << "Reads to process: " << reads.size() << "\n\n";
 
-    long long total_in      = 0;
-    long long total_out     = 0;
-    int reads_no_origin     = 0;
-    int reads_with_origin   = 0;
-    int intervals_with_hit  = 0;   // reads where at least one k-mer hit lands in the interval
+    long long total_in     = 0;
+    long long total_out    = 0;
+    int reads_no_origin    = 0;
+    int reads_with_origin  = 0;
+    int intervals_with_hit = 0;
 
     for (const auto& rec : reads) {
         int orig_pos = -1, read_len = -1;
-        bool has_origin = parse_int_tag(rec.header, "pos=",  orig_pos)
-                       && parse_int_tag(rec.header, "len=",  read_len);
+        bool has_origin = parse_int_tag(rec.header, "pos=", orig_pos)
+                       && parse_int_tag(rec.header, "len=", read_len);
 
-        std::vector<int> hits = locate(rec.sequence, a.k, kmer_index);
+        std::vector<int> hits = index->locate(rec.sequence);
 
         if (!has_origin) {
             ++reads_no_origin;
@@ -212,7 +247,7 @@ int main(int argc, char* argv[]) {
 
         ++reads_with_origin;
         int interval_end = orig_pos + read_len - 1;
-        long long r_in  = 0;
+        long long r_in = 0;
         for (int p : hits)
             if (p >= orig_pos && p <= interval_end) ++r_in;
         long long r_out = static_cast<long long>(hits.size()) - r_in;
